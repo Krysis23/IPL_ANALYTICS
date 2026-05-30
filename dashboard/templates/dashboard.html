@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Cricket Analytics DW</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0d0d;--surface:#181818;--surface2:#222;--border:#2a2a2a;
+  --text:#e5e5e5;--muted:#888;--accent:#1e7e44;--accent2:#e07e2a;
+  --red:#c0392b;--blue:#2980b9;--r:10px;--mono:'Courier New',monospace
+}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;min-height:100vh}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:1rem 2rem;display:flex;align-items:center;gap:14px}
+.logo{width:36px;height:36px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px}
+h1{font-size:18px;font-weight:500}
+.sub{font-size:12px;color:var(--muted);margin-left:auto}
+.container{max-width:1200px;margin:0 auto;padding:1.5rem 2rem}
+.controls{display:flex;gap:12px;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap}
+select{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 14px;border-radius:6px;font-size:13px;outline:none}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:1.5rem;flex-wrap:wrap}
+.tab{padding:9px 18px;font-size:13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:.15s}
+.tab.active{color:var(--accent2);border-bottom-color:var(--accent2)}
+.panel{display:none}.panel.active{display:block}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{background:var(--surface2);padding:10px 14px;text-align:left;font-weight:500;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+tbody tr{border-bottom:1px solid var(--border);transition:.12s}
+tbody tr:hover{background:var(--surface2)}
+td{padding:10px 14px;color:var(--text)}
+td.num{text-align:right;font-family:var(--mono);font-size:12px}
+.rank{color:var(--muted);font-size:12px}
+.rank-1{color:#f1c40f;font-weight:500}
+.rank-2{color:#bdc3c7}
+.rank-3{color:#cd7f32}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px}
+.badge-bat{background:#1a3a2a;color:#27ae60}
+.badge-bowl{background:#2a1a3a;color:#9b59b6}
+.badge-venue{background:#1a2a3a;color:#3498db}
+.chart-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:1.25rem;margin-bottom:1.5rem}
+.chart-title{font-size:13px;font-weight:500;color:var(--muted);margin-bottom:1rem;text-transform:uppercase;letter-spacing:.06em}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:1.25rem}
+.stat-num{font-size:28px;font-weight:600;color:var(--accent2)}
+.stat-label{font-size:12px;color:var(--muted);margin-top:4px}
+.loading{text-align:center;padding:3rem;color:var(--muted);font-size:14px}
+@media(max-width:640px){.grid-2{grid-template-columns:1fr}.container{padding:1rem}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🏏</div>
+  <h1>Cricket Analytics DW</h1>
+  <span class="sub">IPL · PostgreSQL Star Schema</span>
+</header>
+
+<div class="container">
+  <div class="controls">
+    <label style="font-size:13px;color:var(--muted)">Season:</label>
+    <select id="season-filter" onchange="loadAll()">
+      <option value="">All seasons</option>
+      {% for s in seasons %}
+      <option value="{{ s }}">{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('batting')">Batting</div>
+    <div class="tab" onclick="showTab('bowling')">Bowling</div>
+    <div class="tab" onclick="showTab('teams')">Teams</div>
+    <div class="tab" onclick="showTab('venues')">Venues</div>
+    <div class="tab" onclick="showTab('form')">Player Form</div>
+    <div class="tab" onclick="showTab('toss')">Toss Analysis</div>
+  </div>
+
+  <!-- BATTING -->
+  <div class="panel active" id="panel-batting">
+    <div class="chart-wrap">
+      <div class="chart-title">Top Run Scorers</div>
+      <canvas id="chart-batting" height="80"></canvas>
+    </div>
+    <table id="tbl-batting">
+      <thead><tr>
+        <th>#</th><th>Player</th><th>Season</th>
+        <th class="num">Innings</th><th class="num">Runs</th>
+        <th class="num">Avg</th><th class="num">SR</th>
+        <th class="num">4s</th><th class="num">6s</th>
+      </tr></thead>
+      <tbody id="tbody-batting"><tr><td colspan="9" class="loading">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- BOWLING -->
+  <div class="panel" id="panel-bowling">
+    <div class="chart-wrap">
+      <div class="chart-title">Top Wicket Takers</div>
+      <canvas id="chart-bowling" height="80"></canvas>
+    </div>
+    <table id="tbl-bowling">
+      <thead><tr>
+        <th>#</th><th>Player</th><th>Season</th>
+        <th class="num">Matches</th><th class="num">Wickets</th>
+        <th class="num">Economy</th><th class="num">Average</th>
+      </tr></thead>
+      <tbody id="tbody-bowling"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- TEAMS -->
+  <div class="panel" id="panel-teams">
+    <div class="chart-wrap">
+      <div class="chart-title">Win % by Team</div>
+      <canvas id="chart-teams" height="90"></canvas>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Team</th><th class="num">Season</th>
+        <th class="num">Played</th><th class="num">Won</th>
+        <th class="num">Lost</th><th class="num">Win %</th>
+      </tr></thead>
+      <tbody id="tbody-teams"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- VENUES -->
+  <div class="panel" id="panel-venues">
+    <div class="chart-wrap">
+      <div class="chart-title">Average 1st Innings Score by Venue</div>
+      <canvas id="chart-venues" height="90"></canvas>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Venue</th><th>City</th>
+        <th class="num">Matches</th><th class="num">Avg Score</th>
+        <th class="num">Avg RR</th><th class="num">Avg PP</th>
+      </tr></thead>
+      <tbody id="tbody-venues"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- FORM -->
+  <div class="panel" id="panel-form">
+    <div class="chart-wrap">
+      <div class="chart-title">Player Form Index — Last 5 vs Career Avg</div>
+      <canvas id="chart-form" height="90"></canvas>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Player</th>
+        <th class="num">Last 5 Avg</th><th class="num">Career Avg</th>
+        <th class="num">Form Delta</th>
+      </tr></thead>
+      <tbody id="tbody-form"><tr><td colspan="4" class="loading">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- TOSS -->
+  <div class="panel" id="panel-toss">
+    <div class="chart-wrap">
+      <div class="chart-title">Toss Win → Match Win % by Venue</div>
+      <canvas id="chart-toss" height="90"></canvas>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Venue</th><th>Decision</th>
+        <th class="num">Matches</th><th class="num">Toss Wins</th>
+        <th class="num">Win %</th>
+      </tr></thead>
+      <tbody id="tbody-toss"><tr><td colspan="5" class="loading">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let charts = {};
+
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const tabs = ['batting','bowling','teams','venues','form','toss'];
+    t.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+function season() { return document.getElementById('season-filter').value || ''; }
+
+async function loadAll() {
+  const s = season();
+  await Promise.all([
+    loadBatting(s), loadBowling(s), loadTeams(s),
+    loadVenues(s), loadForm(s), loadToss(s)
+  ]);
+}
+
+function makeChart(id, type, labels, datasets, opts={}) {
+  const ctx = document.getElementById(id);
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(ctx, {
+    type, data: { labels, datasets },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#888', font: { size: 12 } } } },
+      scales: type !== 'pie' ? {
+        x: { ticks: { color: '#888' }, grid: { color: '#222' } },
+        y: { ticks: { color: '#888' }, grid: { color: '#222' } }
+      } : undefined,
+      ...opts
+    }
+  });
+}
+
+async function loadBatting(s) {
+  const data = await fetch('/api/batting-leaderboard?season='+s).then(r=>r.json());
+  const top10 = data.slice(0,10);
+  makeChart('chart-batting','bar',
+    top10.map(r=>r.player_name),
+    [{label:'Runs',data:top10.map(r=>r.runs),backgroundColor:'#1e7e44aa',borderColor:'#1e7e44',borderWidth:1}]
+  );
+  document.getElementById('tbody-batting').innerHTML = data.map((r,i)=>`
+    <tr>
+      <td class="rank ${i<3?'rank-'+(i+1):''}">${r.season_rank}</td>
+      <td>${r.player_name}</td>
+      <td>${r.season}</td>
+      <td class="num">${r.innings}</td>
+      <td class="num" style="color:var(--accent2);font-weight:500">${r.runs}</td>
+      <td class="num">${r.average ?? '-'}</td>
+      <td class="num">${r.strike_rate}</td>
+      <td class="num">${r.fours}</td>
+      <td class="num">${r.sixes}</td>
+    </tr>`).join('');
+}
+
+async function loadBowling(s) {
+  const data = await fetch('/api/bowling-leaderboard?season='+s).then(r=>r.json());
+  const top10 = data.slice(0,10);
+  makeChart('chart-bowling','bar',
+    top10.map(r=>r.player_name),
+    [{label:'Wickets',data:top10.map(r=>r.wickets),backgroundColor:'#9b59b6aa',borderColor:'#9b59b6',borderWidth:1}]
+  );
+  document.getElementById('tbody-bowling').innerHTML = data.map((r,i)=>`
+    <tr>
+      <td class="rank ${i<3?'rank-'+(i+1):''}">${r.season_rank}</td>
+      <td>${r.player_name}</td>
+      <td>${r.season}</td>
+      <td class="num">${r.matches}</td>
+      <td class="num" style="color:#9b59b6;font-weight:500">${r.wickets}</td>
+      <td class="num">${r.economy}</td>
+      <td class="num">${r.bowling_average ?? '-'}</td>
+    </tr>`).join('');
+}
+
+async function loadTeams(s) {
+  const data = await fetch('/api/team-performance?season='+s).then(r=>r.json());
+  const top8 = data.slice(0,8);
+  makeChart('chart-teams','bar',
+    top8.map(r=>r.team_name),
+    [{label:'Win %',data:top8.map(r=>parseFloat(r.win_pct)),backgroundColor:'#2980b9aa',borderColor:'#2980b9',borderWidth:1}]
+  );
+  document.getElementById('tbody-teams').innerHTML = data.map(r=>`
+    <tr>
+      <td>${r.team_name}</td>
+      <td class="num">${r.season}</td>
+      <td class="num">${r.matches_played}</td>
+      <td class="num" style="color:var(--accent)">${r.wins}</td>
+      <td class="num" style="color:var(--red)">${r.losses}</td>
+      <td class="num" style="color:var(--accent2)">${r.win_pct}%</td>
+    </tr>`).join('');
+}
+
+async function loadVenues(s) {
+  const data = await fetch('/api/venue-report?season='+s).then(r=>r.json());
+  makeChart('chart-venues','bar',
+    data.map(r=>r.city||r.venue_name.split(' ')[0]),
+    [{label:'Avg Score',data:data.map(r=>parseFloat(r.avg_score)),backgroundColor:'#e07e2a88',borderColor:'#e07e2a',borderWidth:1}]
+  );
+  document.getElementById('tbody-venues').innerHTML = data.map(r=>`
+    <tr>
+      <td>${r.venue_name}</td>
+      <td>${r.city||'-'}</td>
+      <td class="num">${r.total_matches}</td>
+      <td class="num" style="color:var(--accent2)">${r.avg_score}</td>
+      <td class="num">${r.avg_rr}</td>
+      <td class="num">${r.avg_pp}</td>
+    </tr>`).join('');
+}
+
+async function loadForm(s) {
+  const data = await fetch('/api/player-form?season='+s).then(r=>r.json());
+  const top10 = data.slice(0,10);
+  makeChart('chart-form','bar',
+    top10.map(r=>r.player_name),
+    [
+      {label:'Last 5 Avg',data:top10.map(r=>parseFloat(r.avg_last_5)),backgroundColor:'#27ae6088',borderColor:'#27ae60',borderWidth:1},
+      {label:'Career Avg', data:top10.map(r=>parseFloat(r.career_avg)), backgroundColor:'#c0392b44',borderColor:'#c0392b',borderWidth:1}
+    ]
+  );
+  document.getElementById('tbody-form').innerHTML = data.map(r=>{
+    const delta = parseFloat(r.form_delta);
+    const col = delta > 0 ? 'var(--accent)' : 'var(--red)';
+    return `<tr>
+      <td>${r.player_name}</td>
+      <td class="num">${r.avg_last_5}</td>
+      <td class="num">${r.career_avg}</td>
+      <td class="num" style="color:${col};font-weight:500">${delta>0?'+':''}${r.form_delta}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadToss(s) {
+  const data = await fetch('/api/toss-analysis?season='+s).then(r=>r.json());
+  makeChart('chart-toss','bar',
+    data.slice(0,12).map(r=>r.venue_name.split(' ')[0]+' ('+r.toss_decision+')'),
+    [{label:'Win %',data:data.slice(0,12).map(r=>parseFloat(r.win_pct)),backgroundColor:'#2980b988',borderColor:'#2980b9',borderWidth:1}]
+  );
+  document.getElementById('tbody-toss').innerHTML = data.map(r=>`
+    <tr>
+      <td>${r.venue_name}</td>
+      <td><span class="badge ${r.toss_decision==='bat'?'badge-bat':'badge-bowl'}">${r.toss_decision}</span></td>
+      <td class="num">${r.total}</td>
+      <td class="num">${r.toss_wins}</td>
+      <td class="num" style="color:var(--accent2)">${r.win_pct}%</td>
+    </tr>`).join('');
+}
+
+// Initial load
+loadAll();
+</script>
+</body>
+</html>
